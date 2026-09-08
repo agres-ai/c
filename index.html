@@ -5,37 +5,113 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>出勤簿の確認 / Attendance confirmation</title>
 <style>
-  body { font-family: sans-serif; background: #f5f5f5; margin: 0; padding: 48px 24px; text-align: center; color: #333; }
-  .msg { font-size: 15px; }
-  a { color: #1a73e8; }
+  body { font-family: sans-serif; background: #f5f5f5; margin: 0; padding: 24px; display: flex; justify-content: center; }
+  .card { background: #fff; border-radius: 12px; padding: 32px 24px; max-width: 420px; width: 100%;
+          box-shadow: 0 1px 4px rgba(0,0,0,.1); text-align: center; }
+  h1 { font-size: 20px; margin: 0 0 8px; }
+  .sub { color: #555; font-size: 14px; margin: 4px 0; }
+  .en { color: #777; font-size: 13px; }
+  button { margin-top: 20px; padding: 14px 28px; font-size: 16px; border: none; border-radius: 8px;
+           background: #1a73e8; color: #fff; cursor: pointer; }
+  button:active { background: #1558b0; }
+  button[disabled] { background: #9bb8e4; cursor: default; }
 </style>
 </head>
 <body>
-<p class="msg">確認画面をひらいています…<br>Opening the confirmation page…</p>
-<p class="msg"><a id="manual" href="#">開かない場合はこちらをタップ / Tap here if it does not open</a></p>
+<div class="card" id="card">
+  <p class="sub">読み込んでいます…<br><span class="en">Loading…</span></p>
+</div>
+
 <script>
 /*
- * 出勤簿QRの転送ページ。
+ * 出勤簿の本人確認ページ。
  *
- * QRの飛び先をGoogle Apps Scriptのexec URLに直接していたところ、スマホのQRリーダー
- * （Googleアプリ/レンズ）が「Googleのリンク」と認識して、ログイン中のアカウント番号を
- * /macros/u/<番号>/s/... の形で差し込んでしまい、404「ページが見つかりません」になった
- * （2026-09-08、実機Androidで発生）。URLを直接ブラウザに貼ると開けることは確認済み。
- *
- * そこでQRの飛び先をこのGitHub Pages（Google以外のドメイン）にした。QRリーダーは
- * Googleのリンクだと認識できないためアカウント番号を差し込めず、ここからの遷移は
- * 通常のページ内遷移になるので書き換えも起きない。
- *
- * 受け取ったクエリ（e=社員番号, m=対象月）はそのまま引き継ぐ。
+ * 画面はここで描き、出勤簿マスターへの書き込みだけを Google Apps Script に投げる。
+ * GASのURLへ「遷移」させないことが肝心で、スマホのブラウザは script.google.com へ遷移すると
+ * ログイン中のアカウント番号を /macros/u/<番号>/s/... の形で差し込み、404になる
+ * （2026-09-08、実機Androidで確認。URLを手で貼ったときだけ通り、転送を挟んでも遷移なら同じだった）。
+ * <script>タグでの読み込み（JSONP）は遷移ではないため、この書き換えが起きない。
  */
 var GAS_URL = 'https://script.google.com/macros/s/AKfycbzN4mvHyrOhSDRiixm9sp1dKspIAd2pb3H4legvRTRJEfeRpCwDVqkok11gxCUcfHrNfA/exec';
 
 var params = new URLSearchParams(window.location.search);
-if (!params.has('authuser')) params.set('authuser', '0');
-var target = GAS_URL + '?' + params.toString();
+var empNum = params.get('e') || '';
+var month  = params.get('m') || '';
+var card   = document.getElementById('card');
+var seq    = 0;
 
-document.getElementById('manual').href = target;
-window.location.replace(target);
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// JSONPで呼ぶ。遷移ではないのでアカウント番号の書き換えを受けない。
+function callGas(extra, onDone) {
+  var name = '__cb' + (++seq);
+  var timer = setTimeout(function () { cleanup(); onDone({ ok: false, error: 'timeout' }); }, 20000);
+
+  function cleanup() {
+    clearTimeout(timer);
+    try { delete window[name]; } catch (e) { window[name] = undefined; }
+    if (tag.parentNode) tag.parentNode.removeChild(tag);
+  }
+
+  window[name] = function (res) { cleanup(); onDone(res); };
+
+  var qs = new URLSearchParams({ e: empNum, m: month, callback: name, authuser: '0' });
+  for (var k in extra) qs.set(k, extra[k]);
+
+  var tag = document.createElement('script');
+  tag.src = GAS_URL + '?' + qs.toString();
+  tag.onerror = function () { cleanup(); onDone({ ok: false, error: 'network' }); };
+  document.head.appendChild(tag);
+}
+
+function showError(msg) {
+  card.innerHTML =
+    '<h1>エラーが発生しました</h1>' +
+    '<p class="en">Something went wrong. Please contact the office.</p>' +
+    '<p class="sub">' + esc(msg) + '</p>';
+}
+
+function showDone(name) {
+  card.innerHTML =
+    '<h1>確認ありがとうございました</h1>' +
+    '<p class="en">Thank you for confirming.</p>' +
+    '<p class="sub">' + esc(empNum) + ' ' + esc(name) + ' 様 ／ ' + esc(month) + '分</p>';
+}
+
+function showConfirm(name) {
+  card.innerHTML =
+    '<h1>' + esc(empNum) + ' ' + esc(name) + ' 様</h1>' +
+    '<p class="sub">' + esc(month) + '分の出勤簿</p>' +
+    '<p>内容を確認の上、下のボタンを押してください。</p>' +
+    '<p class="en">Please check your attendance record, then tap the button below.</p>' +
+    '<button type="button" id="go">確認しました / Confirm</button>';
+
+  document.getElementById('go').onclick = function () {
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = '送信中… / Sending…';
+    callGas({ c: '1' }, function (res) {
+      if (res && res.ok) showDone(name);
+      else {
+        btn.disabled = false;
+        btn.textContent = '確認しました / Confirm';
+        showError((res && res.error) || '不明なエラー');
+      }
+    });
+  };
+}
+
+if (!empNum || !month) {
+  showError('QRコードの読み取りが不完全です（社員番号または対象月がありません）');
+} else {
+  callGas({}, function (res) {
+    if (res && res.ok) showConfirm(res.name || '');
+    else showError((res && res.error) || '不明なエラー');
+  });
+}
 </script>
 </body>
 </html>
