@@ -45,33 +45,61 @@ function esc(s) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// JSONPで呼ぶ。遷移ではないのでアカウント番号の書き換えを受けない。
+/*
+ * GASを呼ぶ。本命は credentials:'omit' のfetch。
+ * クッキーを一切送らないので、Googleがログイン中のアカウント単位のURLへ振り替える余地がない。
+ * （JSONPだとクッキーが乗ってしまい、複数アカウントの端末で失敗した。2026-09-08）
+ * fetchが使えない古い端末のために、JSONPも予備として残す。
+ */
 function callGas(extra, onDone) {
+  var qs = new URLSearchParams({ e: empNum, m: month });
+  for (var k in extra) qs.set(k, extra[k]);
+
+  if (window.fetch) {
+    var url = GAS_URL + '?' + qs.toString() + '&api=1';
+    fetch(url, { credentials: 'omit', redirect: 'follow' })
+      .then(function (r) { return r.json(); })
+      .then(function (res) { onDone(res); })
+      .catch(function (err) { callGasJsonp(qs, onDone, 'fetch: ' + err); });
+  } else {
+    callGasJsonp(qs, onDone, null);
+  }
+}
+
+function callGasJsonp(qs, onDone, prevError) {
   var name = '__cb' + (++seq);
-  var timer = setTimeout(function () { cleanup(); onDone({ ok: false, error: 'timeout' }); }, 20000);
+  var tag;
+  var timer = setTimeout(function () {
+    cleanup();
+    onDone({ ok: false, error: 'タイムアウト' + (prevError ? '（' + prevError + '）' : '') });
+  }, 25000);
 
   function cleanup() {
     clearTimeout(timer);
     try { delete window[name]; } catch (e) { window[name] = undefined; }
-    if (tag.parentNode) tag.parentNode.removeChild(tag);
+    if (tag && tag.parentNode) tag.parentNode.removeChild(tag);
   }
 
   window[name] = function (res) { cleanup(); onDone(res); };
 
-  var qs = new URLSearchParams({ e: empNum, m: month, callback: name, authuser: '0' });
-  for (var k in extra) qs.set(k, extra[k]);
-
-  var tag = document.createElement('script');
+  qs.set('callback', name);
+  tag = document.createElement('script');
   tag.src = GAS_URL + '?' + qs.toString();
-  tag.onerror = function () { cleanup(); onDone({ ok: false, error: 'network' }); };
+  tag.crossOrigin = 'anonymous';   // クッキーを送らせない
+  tag.onerror = function () {
+    cleanup();
+    onDone({ ok: false, error: '通信に失敗しました' + (prevError ? '（' + prevError + '）' : '') });
+  };
   document.head.appendChild(tag);
 }
 
 function showError(msg) {
   card.innerHTML =
     '<h1>エラーが発生しました</h1>' +
-    '<p class="en">Something went wrong. Please contact the office.</p>' +
-    '<p class="sub">' + esc(msg) + '</p>';
+    '<p class="en">Something went wrong. Please try again.</p>' +
+    '<p class="sub">' + esc(msg) + '</p>' +
+    '<button type="button" id="retry">もう一度 / Retry</button>';
+  document.getElementById('retry').onclick = function () { window.location.reload(); };
 }
 
 function showDone(name) {
