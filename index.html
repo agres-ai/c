@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>出勤簿の確認 / Attendance confirmation</title>
+<style>
+  body { font-family: sans-serif; background: #f5f5f5; margin: 0; padding: 48px 24px; text-align: center; color: #333; }
+  .msg { font-size: 15px; }
+  a { color: #1a73e8; }
+</style>
+</head>
+<body>
+<p class="msg">確認画面をひらいています…<br>Opening the confirmation page…</p>
+<p class="msg"><a id="manual" href="#">開かない場合はこちらをタップ / Tap here if it does not open</a></p>
+<script>
+/*
+ * 出勤簿QRの転送ページ。
+ *
+ * QRの飛び先をGoogle Apps Scriptのexec URLに直接していたところ、スマホのQRリーダー
+ * （Googleアプリ/レンズ）が「Googleのリンク」と認識して、ログイン中のアカウント番号を
+ * /macros/u/<番号>/s/... の形で差し込んでしまい、404「ページが見つかりません」になった
+ * （2026-09-08、実機Androidで発生）。URLを直接ブラウザに貼ると開けることは確認済み。
+ *
+ * そこでQRの飛び先をこのGitHub Pages（Google以外のドメイン）にした。QRリーダーは
+ * Googleのリンクだと認識できないためアカウント番号を差し込めず、ここからの遷移は
+ * 通常のページ内遷移になるので書き換えも起きない。
+ *
+ * 受け取ったクエリ（e=社員番号, m=対象月）はそのまま引き継ぐ。
+ */
+var GAS_URL = 'https://script.google.com/macros/s/AKfycbzN4mvHyrOhSDRiixm9sp1dKspIAd2pb3H4legvRTRJEfeRpCwDVqkok11gxCUcfHrNfA/exec';
+
+var params = new URLSearchParams(window.location.search);
+if (!params.has('authuser')) params.set('authuser', '0');
+var target = GAS_URL + '?' + params.toString();
+
+document.getElementById('manual').href = target;
+window.location.replace(target);
+</script>
+</body>
+</html>
