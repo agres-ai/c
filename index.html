@@ -39,6 +39,7 @@ var empNum = params.get('e') || '';
 var month  = params.get('m') || '';
 var card   = document.getElementById('card');
 var seq    = 0;
+var knownName = '';   // 氏名は後から届くので、届いた分をここに持っておく
 
 function esc(s) {
   return String(s == null ? '' : s)
@@ -111,7 +112,7 @@ function showDone(name) {
 
 function showConfirm(name) {
   card.innerHTML =
-    '<h1>' + esc(empNum) + ' ' + esc(name) + ' 様</h1>' +
+    '<h1>' + esc(empNum) + (name ? ' ' + esc(name) : '') + ' 様</h1>' +
     '<p class="sub">' + esc(month) + '分の出勤簿</p>' +
     '<p>内容を確認の上、下のボタンを押してください。</p>' +
     '<p class="en">Please check your attendance record, then tap the button below.</p>' +
@@ -122,7 +123,7 @@ function showConfirm(name) {
     btn.disabled = true;
     btn.textContent = '送信中… / Sending…';
     callGas({ c: '1' }, function (res) {
-      if (res && res.ok) showDone(name);
+      if (res && res.ok) showDone(knownName || name);
       else {
         btn.disabled = false;
         btn.textContent = '確認しました / Confirm';
@@ -132,12 +133,21 @@ function showConfirm(name) {
   };
 }
 
+/*
+ * 氏名の取得を待たずに、すぐボタンまで出す。
+ * 社員番号と対象月はQRから分かっているので、氏名だけ後から差し込めば待たせる必要がない。
+ * （待ってから描いていたため「挙動が遅い」と指摘を受けた。2026-09-08）
+ */
 if (!empNum || !month) {
   showError('QRコードの読み取りが不完全です（社員番号または対象月がありません）');
 } else {
+  showConfirm('');
   callGas({}, function (res) {
-    if (res && res.ok) showConfirm(res.name || '');
-    else showError((res && res.error) || '不明なエラー');
+    if (res && res.ok && res.name) {
+      var h = document.querySelector('#card h1');
+      if (h) h.textContent = empNum + ' ' + res.name + ' 様';
+      knownName = res.name;
+    }
   });
 }
 </script>
