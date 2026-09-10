@@ -141,6 +141,17 @@ function monthText(t) {
   return mm ? t.month(mm[1], parseInt(mm[2], 10)) : S.month;
 }
 
+// 確認済み画面の「対象月」欄用の短い表記
+function monthShort() {
+  var mm = /^(\d{4})-(\d{1,2})$/.exec(S.month);
+  if (!mm) return S.month;
+  var y = mm[1], n = parseInt(mm[2], 10);
+  if (S.lang === 'ja') return y + '年' + n + '月';
+  if (S.lang === 'id') return ID_MONTHS[n - 1] + ' ' + y;
+  if (S.lang === 'vi') return 'Tháng ' + n + '/' + y;
+  return EN_MONTHS[n - 1] + ' ' + y;
+}
+
 // 日本時間で YYYY/MM/DD HH:MM（言語に依らず同じ表記にして、読み違いを防ぐ）
 function formatAt(iso) {
   var d = new Date(iso);
@@ -176,7 +187,7 @@ function render() {
            '<div class="facts">' +
              '<div><span>' + esc(t.empLabel) + '</span><span>' + esc(S.empNum) + '</span></div>' +
              (S.name ? '<div><span>' + esc(t.nameLabel) + '</span><span>' + esc(S.name) + '</span></div>' : '') +
-             '<div><span>' + esc(t.monthLabel) + '</span><span>' + esc(monthText(t)) + '</span></div>' +
+             '<div><span>' + esc(t.monthLabel) + '</span><span>' + esc(monthShort()) + '</span></div>' +
              (S.confirmedAt ? '<div><span>' + esc(t.atLabel) + '</span><span>' + esc(formatAt(S.confirmedAt)) + '</span></div>' : '') +
            '</div>' +
            '<p class="note">' + esc(t.doneNote) + '</p>';
