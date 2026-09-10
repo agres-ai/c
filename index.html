@@ -3,62 +3,247 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>出勤簿の確認 / Attendance confirmation</title>
+<title>出勤簿の本人確認 / Attendance record check</title>
 <style>
-  body { font-family: sans-serif; background: #f5f5f5; margin: 0; padding: 24px; display: flex; justify-content: center; }
-  .card { background: #fff; border-radius: 12px; padding: 32px 24px; max-width: 420px; width: 100%;
-          box-shadow: 0 1px 4px rgba(0,0,0,.1); text-align: center; }
-  h1 { font-size: 20px; margin: 0 0 8px; }
-  .sub { color: #555; font-size: 14px; margin: 4px 0; }
-  .en { color: #777; font-size: 13px; }
-  button { margin-top: 20px; padding: 14px 28px; font-size: 16px; border: none; border-radius: 8px;
-           background: #1a73e8; color: #fff; cursor: pointer; }
-  button:active { background: #1558b0; }
-  button[disabled] { background: #9bb8e4; cursor: default; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, "Hiragino Sans", "Noto Sans JP", sans-serif;
+         background: #f1f3f4; margin: 0; padding: 16px; color: #202124; }
+  .wrap { max-width: 440px; margin: 0 auto; }
+  .langs { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 12px; }
+  .langs button { border: 1px solid #dadce0; background: #fff; color: #3c4043; border-radius: 16px;
+                  padding: 6px 12px; font-size: 13px; cursor: pointer; }
+  .langs button[aria-pressed="true"] { background: #1a73e8; border-color: #1a73e8; color: #fff; }
+  .card { background: #fff; border-radius: 14px; padding: 28px 22px; text-align: center;
+          box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  .who { font-size: 20px; font-weight: 700; margin: 0 0 4px; word-break: break-word; }
+  .month { color: #5f6368; font-size: 15px; margin: 0 0 18px; }
+  .lead { font-size: 16px; line-height: 1.6; margin: 0 0 22px; }
+  .primary { width: 100%; min-height: 60px; font-size: 18px; font-weight: 700; border: none; border-radius: 10px;
+             background: #1a73e8; color: #fff; cursor: pointer; display: inline-flex; align-items: center;
+             justify-content: center; gap: 10px; }
+  .primary:active { background: #1558b0; }
+  .primary[disabled] { background: #8ab4f8; cursor: default; }
+  .spinner { width: 20px; height: 20px; border: 3px solid rgba(255,255,255,.45); border-top-color: #fff;
+             border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .hint { color: #5f6368; font-size: 14px; margin: 14px 0 0; min-height: 1.4em; }
+  .mark { width: 96px; height: 96px; margin: 4px auto 14px; border-radius: 50%; display: flex;
+          align-items: center; justify-content: center; }
+  .mark.ok { background: #1e8e3e; animation: pop .35s ease-out; }
+  .mark.ng { background: #d93025; }
+  @keyframes pop { 0% { transform: scale(.4); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+  .big { font-size: 26px; font-weight: 700; margin: 0 0 12px; }
+  .big.ok { color: #1e8e3e; }
+  .big.ng { color: #d93025; }
+  .facts { background: #f8f9fa; border-radius: 10px; padding: 14px; margin: 16px 0 12px; text-align: left; font-size: 15px; }
+  .facts div { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; }
+  .facts span:first-child { color: #5f6368; flex-shrink: 0; }
+  .facts span:last-child { font-weight: 600; text-align: right; word-break: break-word; }
+  .note { color: #3c4043; font-size: 15px; line-height: 1.6; margin: 0; }
+  .detail { color: #80868b; font-size: 12px; margin: 10px 0 0; word-break: break-all; }
+  .secondary { margin-top: 18px; width: 100%; min-height: 52px; font-size: 16px; font-weight: 700;
+               border: 2px solid #1a73e8; background: #fff; color: #1a73e8; border-radius: 10px; cursor: pointer; }
 </style>
 </head>
 <body>
-<div class="card" id="card">
-  <p class="sub">読み込んでいます…<br><span class="en">Loading…</span></p>
+<div class="wrap">
+  <div class="langs" id="langs"></div>
+  <div class="card" id="card" aria-live="polite"></div>
 </div>
 
 <script>
 /*
- * 出勤簿の本人確認ページ。
+ * 出勤簿の本人確認ページ（QRの飛び先）。
  *
- * 画面はここで描き、出勤簿マスターへの書き込みだけを Google Apps Script に投げる。
+ * 画面はここで描き、出勤簿マスターへの読み書きだけを Google Apps Script に投げる。
  * GASのURLへ「遷移」させないことが肝心で、スマホのブラウザは script.google.com へ遷移すると
  * ログイン中のアカウント番号を /macros/u/<番号>/s/... の形で差し込み、404になる
- * （2026-09-08、実機Androidで確認。URLを手で貼ったときだけ通り、転送を挟んでも遷移なら同じだった）。
- * <script>タグでの読み込み（JSONP）は遷移ではないため、この書き換えが起きない。
+ * （2026-09-08、実機Androidで確認。転送を挟んでも遷移なら同じだった）。
+ *
+ * 画面は「未確認 → 送信中 → 確認済み（または送信失敗）」の状態として持ち、描画は必ず状態から行う。
+ * 以前は後から届いた氏名で見出しを直接書き換えていたため、書き込みより氏名の取得が遅れると
+ * 「確認ありがとうございました」が氏名で上書きされ、押しても画面が変わらないように見えた
+ * （2026-09-10、利用者から「押せたのかどうか分からない」と指摘。再現確認済み）。
  */
 var GAS_URL = 'https://script.google.com/macros/s/AKfycbzN4mvHyrOhSDRiixm9sp1dKspIAd2pb3H4legvRTRJEfeRpCwDVqkok11gxCUcfHrNfA/exec';
 
+var TEXT = {
+  ja: {
+    label: '日本語', month: function (y, n) { return y + '年' + n + '月分の出勤簿'; }, honorific: ' 様',
+    lead: '出勤簿の内容を確認して、下のボタンを押してください。',
+    button: '確認しました', sending: '送信中…', slow: '通信に時間がかかっています。このままお待ちください。',
+    doneTitle: '確認できました', doneNote: '記録されました。この画面は閉じてかまいません。',
+    empLabel: '社員番号', nameLabel: '氏名', monthLabel: '対象月', atLabel: '確認日時',
+    errTitle: '送信できませんでした', errNote: 'もう一度押してください。何度やってもだめな場合は事務所に伝えてください。',
+    retry: 'もう一度送信', badQr: 'QRコードをもう一度読み取ってください。'
+  },
+  en: {
+    label: 'English', month: function (y, n) { return 'Attendance record for ' + EN_MONTHS[n - 1] + ' ' + y; }, honorific: '',
+    lead: 'Please check your attendance record, then tap the button below.',
+    button: 'I have checked it', sending: 'Sending…', slow: 'This is taking a little longer. Please wait.',
+    doneTitle: 'Confirmed', doneNote: 'Your confirmation has been recorded. You can close this page.',
+    empLabel: 'Employee No.', nameLabel: 'Name', monthLabel: 'Month', atLabel: 'Confirmed at',
+    errTitle: 'Could not send', errNote: 'Please tap the button again. If it keeps failing, please tell the office.',
+    retry: 'Send again', badQr: 'Please scan the QR code again.'
+  },
+  id: {
+    label: 'Indonesia', month: function (y, n) { return 'Catatan kehadiran ' + ID_MONTHS[n - 1] + ' ' + y; }, honorific: '',
+    lead: 'Silakan periksa catatan kehadiran Anda, lalu tekan tombol di bawah.',
+    button: 'Sudah saya periksa', sending: 'Mengirim…', slow: 'Sedang diproses. Mohon tunggu sebentar.',
+    doneTitle: 'Sudah dikonfirmasi', doneNote: 'Konfirmasi Anda sudah tercatat. Halaman ini boleh ditutup.',
+    empLabel: 'No. karyawan', nameLabel: 'Nama', monthLabel: 'Bulan', atLabel: 'Waktu konfirmasi',
+    errTitle: 'Gagal mengirim', errNote: 'Silakan tekan tombol lagi. Jika tetap gagal, beri tahu kantor.',
+    retry: 'Kirim lagi', badQr: 'Silakan pindai kode QR sekali lagi.'
+  },
+  vi: {
+    label: 'Tiếng Việt', month: function (y, n) { return 'Bảng chấm công tháng ' + n + '/' + y; }, honorific: '',
+    lead: 'Vui lòng kiểm tra bảng chấm công, sau đó nhấn nút bên dưới.',
+    button: 'Tôi đã kiểm tra', sending: 'Đang gửi…', slow: 'Đang xử lý, vui lòng chờ một chút.',
+    doneTitle: 'Đã xác nhận', doneNote: 'Xác nhận của bạn đã được ghi lại. Bạn có thể đóng trang này.',
+    empLabel: 'Mã nhân viên', nameLabel: 'Họ tên', monthLabel: 'Tháng', atLabel: 'Thời gian xác nhận',
+    errTitle: 'Không gửi được', errNote: 'Vui lòng nhấn nút lại. Nếu vẫn không được, hãy báo cho văn phòng.',
+    retry: 'Gửi lại', badQr: 'Vui lòng quét lại mã QR.'
+  }
+};
+var EN_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+var ID_MONTHS = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+
 var params = new URLSearchParams(window.location.search);
-var empNum = params.get('e') || '';
-var month  = params.get('m') || '';
-var card   = document.getElementById('card');
-var seq    = 0;
-var knownName = '';   // 氏名は後から届くので、届いた分をここに持っておく
+var S = {
+  empNum: params.get('e') || '',
+  month: params.get('m') || '',
+  name: '',
+  phase: 'pending',     // pending | sending | done | error | badqr
+  confirmedAt: null,
+  error: '',
+  slow: false,
+  lang: pickLang()
+};
+var seq = 0;
+var slowTimer = null;
+
+function pickLang() {
+  try { var saved = localStorage.getItem('lang'); if (saved && TEXT[saved]) return saved; } catch (e) {}
+  var nav = (navigator.language || 'ja').toLowerCase();
+  if (nav.indexOf('ja') === 0) return 'ja';
+  if (nav.indexOf('id') === 0 || nav.indexOf('in') === 0 || nav.indexOf('ms') === 0) return 'id';
+  if (nav.indexOf('vi') === 0) return 'vi';
+  return 'en';
+}
 
 function esc(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function monthText(t) {
+  var mm = /^(\d{4})-(\d{1,2})$/.exec(S.month);
+  return mm ? t.month(mm[1], parseInt(mm[2], 10)) : S.month;
+}
+
+// 日本時間で YYYY/MM/DD HH:MM（言語に依らず同じ表記にして、読み違いを防ぐ）
+function formatAt(iso) {
+  var d = new Date(iso);
+  if (isNaN(d)) return '';
+  var j = new Date(d.getTime() + 9 * 3600 * 1000);
+  function p(n) { return (n < 10 ? '0' : '') + n; }
+  return j.getUTCFullYear() + '/' + p(j.getUTCMonth() + 1) + '/' + p(j.getUTCDate()) +
+         ' ' + p(j.getUTCHours()) + ':' + p(j.getUTCMinutes());
+}
+
+var CHECK_SVG = '<svg width="56" height="56" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" d="M5 12.5l4.2 4.2L19 7"/></svg>';
+var CROSS_SVG = '<svg width="52" height="52" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" d="M7 7l10 10M17 7L7 17"/></svg>';
+
+function render() {
+  var t = TEXT[S.lang];
+  document.documentElement.lang = S.lang;
+
+  var langs = '';
+  for (var k in TEXT) {
+    langs += '<button type="button" data-lang="' + k + '" aria-pressed="' + (k === S.lang) + '">' + TEXT[k].label + '</button>';
+  }
+  document.getElementById('langs').innerHTML = langs;
+
+  var who = esc(S.empNum) + (S.name ? ' ' + esc(S.name) + t.honorific : '');
+  var html;
+
+  if (S.phase === 'badqr') {
+    html = '<div class="mark ng">' + CROSS_SVG + '</div><p class="big ng">' + esc(t.errTitle) + '</p>' +
+           '<p class="note">' + esc(t.badQr) + '</p>';
+  } else if (S.phase === 'done') {
+    html = '<div class="mark ok">' + CHECK_SVG + '</div>' +
+           '<p class="big ok">' + esc(t.doneTitle) + '</p>' +
+           '<div class="facts">' +
+             '<div><span>' + esc(t.empLabel) + '</span><span>' + esc(S.empNum) + '</span></div>' +
+             (S.name ? '<div><span>' + esc(t.nameLabel) + '</span><span>' + esc(S.name) + '</span></div>' : '') +
+             '<div><span>' + esc(t.monthLabel) + '</span><span>' + esc(monthText(t)) + '</span></div>' +
+             (S.confirmedAt ? '<div><span>' + esc(t.atLabel) + '</span><span>' + esc(formatAt(S.confirmedAt)) + '</span></div>' : '') +
+           '</div>' +
+           '<p class="note">' + esc(t.doneNote) + '</p>';
+  } else if (S.phase === 'error') {
+    html = '<div class="mark ng">' + CROSS_SVG + '</div>' +
+           '<p class="big ng">' + esc(t.errTitle) + '</p>' +
+           '<p class="note">' + esc(t.errNote) + '</p>' +
+           '<button type="button" class="primary" id="go" style="margin-top:18px">' + esc(t.retry) + '</button>' +
+           (S.error ? '<p class="detail">' + esc(S.error) + '</p>' : '');
+  } else {
+    var sending = S.phase === 'sending';
+    html = '<p class="who">' + who + '</p>' +
+           '<p class="month">' + esc(monthText(t)) + '</p>' +
+           '<p class="lead">' + esc(t.lead) + '</p>' +
+           '<button type="button" class="primary" id="go"' + (sending ? ' disabled' : '') + '>' +
+             (sending ? '<span class="spinner"></span>' + esc(t.sending) : esc(t.button)) +
+           '</button>' +
+           '<p class="hint">' + (sending && S.slow ? esc(t.slow) : '') + '</p>';
+  }
+  document.getElementById('card').innerHTML = html;
+
+  var go = document.getElementById('go');
+  if (go && !go.disabled) go.onclick = confirmNow;
+}
+
+document.getElementById('langs').addEventListener('click', function (ev) {
+  var b = ev.target.closest('button[data-lang]');
+  if (!b) return;
+  S.lang = b.getAttribute('data-lang');
+  try { localStorage.setItem('lang', S.lang); } catch (e) {}
+  render();
+});
+
+function confirmNow() {
+  if (S.phase === 'sending' || S.phase === 'done') return;
+  S.phase = 'sending';
+  S.slow = false;
+  clearTimeout(slowTimer);
+  slowTimer = setTimeout(function () { if (S.phase === 'sending') { S.slow = true; render(); } }, 6000);
+  render();
+
+  callGas({ c: '1' }, function (res) {
+    clearTimeout(slowTimer);
+    if (res && res.ok) {
+      S.phase = 'done';
+      if (res.name) S.name = res.name;
+      S.confirmedAt = res.confirmedAt || S.confirmedAt;
+      if (navigator.vibrate) { try { navigator.vibrate(80); } catch (e) {} }
+    } else {
+      S.phase = 'error';
+      S.error = (res && res.error) || '';
+    }
+    render();
+    window.scrollTo(0, 0);
+  });
+}
+
 /*
- * GASを呼ぶ。本命は credentials:'omit' のfetch。
- * クッキーを一切送らないので、Googleがログイン中のアカウント単位のURLへ振り替える余地がない。
- * （JSONPだとクッキーが乗ってしまい、複数アカウントの端末で失敗した。2026-09-08）
- * fetchが使えない古い端末のために、JSONPも予備として残す。
+ * GASを呼ぶ。本命は credentials:'omit' のfetch（クッキーを送らないので、
+ * Googleがアカウント単位のURLへ振り替える余地がない）。古い端末向けにJSONP（callback）を予備に残す。
  */
 function callGas(extra, onDone) {
-  var qs = new URLSearchParams({ e: empNum, m: month });
+  var qs = new URLSearchParams({ e: S.empNum, m: S.month });
   for (var k in extra) qs.set(k, extra[k]);
 
   if (window.fetch) {
-    var url = GAS_URL + '?' + qs.toString() + '&api=1';
-    fetch(url, { credentials: 'omit', redirect: 'follow' })
+    fetch(GAS_URL + '?' + qs.toString() + '&api=1', { credentials: 'omit', redirect: 'follow' })
       .then(function (r) { return r.json(); })
       .then(function (res) { onDone(res); })
       .catch(function (err) { callGasJsonp(qs, onDone, 'fetch: ' + err); });
@@ -68,86 +253,38 @@ function callGas(extra, onDone) {
 }
 
 function callGasJsonp(qs, onDone, prevError) {
-  var name = '__cb' + (++seq);
+  var cb = '__cb' + (++seq);
   var tag;
-  var timer = setTimeout(function () {
-    cleanup();
-    onDone({ ok: false, error: 'タイムアウト' + (prevError ? '（' + prevError + '）' : '') });
-  }, 25000);
-
+  var timer = setTimeout(function () { cleanup(); onDone({ ok: false, error: 'timeout' + (prevError ? ' / ' + prevError : '') }); }, 25000);
   function cleanup() {
     clearTimeout(timer);
-    try { delete window[name]; } catch (e) { window[name] = undefined; }
+    try { delete window[cb]; } catch (e) { window[cb] = undefined; }
     if (tag && tag.parentNode) tag.parentNode.removeChild(tag);
   }
-
-  window[name] = function (res) { cleanup(); onDone(res); };
-
-  qs.set('callback', name);
+  window[cb] = function (res) { cleanup(); onDone(res); };
+  qs.set('callback', cb);
   tag = document.createElement('script');
   tag.src = GAS_URL + '?' + qs.toString();
-  tag.crossOrigin = 'anonymous';   // クッキーを送らせない
-  tag.onerror = function () {
-    cleanup();
-    onDone({ ok: false, error: '通信に失敗しました' + (prevError ? '（' + prevError + '）' : '') });
-  };
+  tag.crossOrigin = 'anonymous';
+  tag.onerror = function () { cleanup(); onDone({ ok: false, error: 'network' + (prevError ? ' / ' + prevError : '') }); };
   document.head.appendChild(tag);
 }
 
-function showError(msg) {
-  card.innerHTML =
-    '<h1>エラーが発生しました</h1>' +
-    '<p class="en">Something went wrong. Please try again.</p>' +
-    '<p class="sub">' + esc(msg) + '</p>' +
-    '<button type="button" id="retry">もう一度 / Retry</button>';
-  document.getElementById('retry').onclick = function () { window.location.reload(); };
-}
-
-function showDone(name) {
-  card.innerHTML =
-    '<h1>確認ありがとうございました</h1>' +
-    '<p class="en">Thank you for confirming.</p>' +
-    '<p class="sub">' + esc(empNum) + ' ' + esc(name) + ' 様 ／ ' + esc(month) + '分</p>';
-}
-
-function showConfirm(name) {
-  card.innerHTML =
-    '<h1>' + esc(empNum) + (name ? ' ' + esc(name) : '') + ' 様</h1>' +
-    '<p class="sub">' + esc(month) + '分の出勤簿</p>' +
-    '<p>内容を確認の上、下のボタンを押してください。</p>' +
-    '<p class="en">Please check your attendance record, then tap the button below.</p>' +
-    '<button type="button" id="go">確認しました / Confirm</button>';
-
-  document.getElementById('go').onclick = function () {
-    var btn = this;
-    btn.disabled = true;
-    btn.textContent = '送信中… / Sending…';
-    callGas({ c: '1' }, function (res) {
-      if (res && res.ok) showDone(knownName || name);
-      else {
-        btn.disabled = false;
-        btn.textContent = '確認しました / Confirm';
-        showError((res && res.error) || '不明なエラー');
-      }
-    });
-  };
-}
-
-/*
- * 氏名の取得を待たずに、すぐボタンまで出す。
- * 社員番号と対象月はQRから分かっているので、氏名だけ後から差し込めば待たせる必要がない。
- * （待ってから描いていたため「挙動が遅い」と指摘を受けた。2026-09-08）
- */
-if (!empNum || !month) {
-  showError('QRコードの読み取りが不完全です（社員番号または対象月がありません）');
+// 起動。ボタンは待たせずすぐ出し、氏名と確認状況は届いたら「状態に」反映する。
+if (!S.empNum || !/^\d{4}-\d{1,2}$/.test(S.month)) {
+  S.phase = 'badqr';
+  render();
 } else {
-  showConfirm('');
+  render();
   callGas({}, function (res) {
-    if (res && res.ok && res.name) {
-      var h = document.querySelector('#card h1');
-      if (h) h.textContent = empNum + ' ' + res.name + ' 様';
-      knownName = res.name;
+    if (!res || !res.ok) return;          // 氏名が引けなくても確認自体はできるので、画面は変えない
+    if (res.name) S.name = res.name;
+    if (res.confirmed && S.phase === 'pending') {
+      // すでに確認済みの人が開き直した場合は、確認済み画面から始める
+      S.phase = 'done';
+      S.confirmedAt = res.confirmedAt || null;
     }
+    render();
   });
 }
 </script>
